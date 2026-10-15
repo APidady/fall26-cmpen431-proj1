@@ -19,18 +19,28 @@ next_commit = 0
 def initStructuresAndCounts():
     # Read input and initialize registers and instructions
     global physical_registers, issue_width, instructions, icount
-    global mapping, free_registers, ready_cycle, next_rename, next_commit, freed_by_cycle, cyclecount
+    global mapping, free_registers, ready_cycle
+    global next_rename, next_commit, freed_by_cycle, cyclecount
 
     physical_registers, issue_width, instructions = parse_file(sys.argv[1])
     icount = len(instructions)
+
     mapping = list(range(32))
     free_registers = list(range(32, physical_registers))
     ready_cycle = [0] * physical_registers
 
     for inst in instructions:
         inst.update({
-            "FE": None, "DE": None, "RE": None, "DI": None, "IS": None, "WB": None, "CO": None,
-            "psrcs": [], "new_phys": None, "old_phys": None
+            "FE": None, 
+            "DE": None, 
+            "RE": None, 
+            "DI": None, 
+            "IS": None, 
+            "WB": None, 
+            "CO": None,
+            "psrcs": [], 
+            "new_phys": None, 
+            "old_phys": None
         })
 
     next_rename = 0
@@ -41,29 +51,45 @@ def initStructuresAndCounts():
 
 def commit():
     # Commit completed instructions in program order
-    global next_commit, freed_by_cycle, cyclecount, instructions, issue_width, icount, free_registers
+    global next_commit, freed_by_cycle, cyclecount 
+    global instructions, issue_width, icount, free_registers
     
     # Free registers scheduled to be released this cycle
     free_registers.extend(freed_by_cycle.pop(cyclecount, []))
 
     committed = 0
+
     while next_commit < icount and committed < issue_width:
         inst = instructions[next_commit]
+
         if inst["WB"] is None or inst["WB"] >= cyclecount:
             break
+
         inst["CO"] = cyclecount
+
         if inst["old_phys"] is not None:
             freed_by_cycle.setdefault(cyclecount + 1, []).append(
-                inst["old_phys"]
-            )
+                inst["old_phys"])
+        
         next_commit += 1
         committed += 1
 
 
 def writeback():
     # Complete writeback for instructions issued last cycle
-    # Writeback is synchronized with issue/execution completion
-    pass
+    global cyclecount, instructions, ready_cycle
+
+    # Instructions write back in the cycle after issue.
+    for inst in instructions:
+        if inst["IS"] is None or inst["WB"] is not None:
+            continue
+
+        if inst["IS"] + 1 <= cyclecount:
+            inst["WB"] = inst["IS"] + 1
+
+            # The destination becomes available at writeback.
+            if inst["new_phys"] is not None:
+                ready_cycle[inst["new_phys"]] = inst["WB"]
 
 
 def issue():
@@ -76,12 +102,17 @@ def issue():
     for inst in instructions:
         if issued >= issue_width:
             break
+
         if inst["IS"] is not None:
             continue
+
         if inst["DI"] is None or inst["DI"] >= cyclecount:
             continue
 
-        if not all(ready_cycle[p] <= cyclecount for p in inst["psrcs"]):
+        if not all(
+            ready_cycle[p] <= cyclecount 
+            for p in inst["psrcs"]
+        ):
             continue
 
         if inst["op"] in ("L", "S"):
@@ -90,27 +121,35 @@ def issue():
             # Older stores must issue before younger memory operations.
             for older in instructions[:inst["index"]]:
                 if older["op"] == "S":
-                    if older["IS"] is None or older["IS"] >= cyclecount:
+                    if (
+                        older["IS"] is None
+                        or older["IS"] >= cyclecount
+                    ):
                         blocked = True
                         break
 
             if blocked:
                 continue
 
-            if inst["op"] == "S" and memory_issued_this_cycle:
-                continue
-
-            if inst["op"] == "L" and any(
-                issued_mem["op"] == "S"
-                for issued_mem in memory_issued_this_cycle
+            # Stores cannot issue with another memory operation.
+            if (
+                inst["op"] == "S"
+                and memory_issued_this_cycle
             ):
                 continue
 
-        inst["IS"] = cyclecount
-        inst["WB"] = cyclecount + 1
+            # Loads cannot issue in a cycle containing a store.
+            if (
+                inst["op"] == "L"
+                and any(
+                    issued_mem["op"] == "S"
+                    for issued_mem in memory_issued_this_cycle
+                )
+            ):
+                continue
 
-        if inst["new_phys"] is not None:
-            ready_cycle[inst["new_phys"]] = inst["WB"]
+
+        inst["IS"] = cyclecount
 
         if inst["op"] in ("L", "S"):
             memory_issued_this_cycle.append(inst)
@@ -126,49 +165,71 @@ def dispatch():
 
 def rename():
     # Rename architectural registers to physical registers
-    global next_rename, cyclecount, instructions, issue_width, icount, mapping, free_registers, ready_cycle
+    global next_rename, cyclecount, instructions, issue_width
+    global icount, mapping, free_registers, ready_cycle
 
     renamed = 0
+
     while next_rename < icount and renamed < issue_width:
         inst = instructions[next_rename]
+
+        # Decode must have completed in an earlier cycle
         if inst["DE"] is None or inst["DE"] >= cyclecount:
             break
+
+        # Stall if no phys register is available
         if inst["dest"] is not None and not free_registers:
             break
 
-        inst["psrcs"] = [mapping[r] for r in inst["srcs"]]
+        inst["psrcs"] = [
+             mapping[r] for r in inst["srcs"]
+        ]
 
         if inst["dest"] is not None:
             new_phys = free_registers.pop(0)
+
             inst["new_phys"] = new_phys
             inst["old_phys"] = mapping[inst["dest"]]
+
             mapping[inst["dest"]] = new_phys
             ready_cycle[new_phys] = float("inf")
 
         inst["RE"] = cyclecount
         inst["DI"] = cyclecount + 1
+
         next_rename += 1
         renamed += 1
 
 
 def decode():
-    # Advance decoded instructions
-    global cyclecount, instructions, issue_width, icount
-    for i, inst in enumerate(instructions):
+    global cyclecount,instructions 
+    
+    # No decode stalls: DE = FE + 1.
+    for inst in instructions:
         if inst["FE"] is not None and inst["DE"] is None:
-            expected_de = inst["FE"] + 1
-            if expected_de <= cyclecount:
-                inst["DE"] = cyclecount
+            if inst["FE"] + 1 <= cyclecount:
+                inst["DE"] = inst["FE"] + 1
 
 
 def fetch():
-    # Fetch instructions in program order based on issue width / cycle
     global cyclecount, instructions, icount, issue_width
+
+    # Fetch up to issue_width instructions each cycle.
+    fetched = 0
+
     for i, inst in enumerate(instructions):
-        if inst["FE"] is None:
-            expected_fe = i // issue_width
-            if expected_fe <= cyclecount:
-                inst["FE"] = cyclecount
+        if inst["FE"] is not None:
+            continue
+
+        expected_fe = i // issue_width
+
+        if expected_fe > cyclecount:
+            break
+
+        inst["FE"] = cyclecount
+        fetched += 1
+
+        if fetched >= issue_width:
             break
 
 
