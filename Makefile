@@ -5,9 +5,7 @@ PYTHON = python3
 all: test
 
 test:
-	echo '#!/bin/sh' > test
-	echo 'exec  $(PYTHON) OoOScheduler.py "$$@"' >> test
-	chmod +x test
+	$(PYTHON) OoOScheduler.py test.in > out.txt
 
 clean:
-	rm -f test out.txt
+	rm -f out.txt

@@ -235,15 +235,12 @@ def fetch():
 
 def emitOutput():
     # Write all seven stage cycles to out.txt
-    try:
-        with open("out.txt", "w") as output:
-            for inst in instructions:
-                output.write("{},{},{},{},{},{},{}\n".format(
-                    inst["FE"], inst["DE"], inst["RE"], inst["DI"],
-                    inst["IS"], inst["WB"], inst["CO"]
-                ))
-    except (OSError, ValueError):
-        return
+    with open("out.txt", "w") as output:
+        for inst in instructions:
+            output.write("{},{},{},{},{},{},{}\n".format(
+                inst["FE"], inst["DE"], inst["RE"], inst["DI"],
+                inst["IS"], inst["WB"], inst["CO"]
+            ))
 
 
 def main():
