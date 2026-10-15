@@ -1,0 +1,198 @@
+import sys
+from Parser import parse_file, InputError
+
+
+def schedule(physical_registers, issue_width, instructions):
+    count = len(instructions)
+
+    # Initial architectural-to-physical register mapping.
+    mapping = list(range(32))
+
+    # Free registers are consumed in increasing order.
+    free_registers = list(range(32, physical_registers))
+
+    # ready_cycle[p] is the cycle in which physical register p
+    # completes writeback. Initial registers are already ready.
+    ready_cycle = [0] * physical_registers
+
+    # Per-instruction pipeline state.
+    for inst in instructions:
+        inst["FE"] = inst["index"] // issue_width
+        inst["DE"] = inst["FE"] + 1
+        inst["RE"] = None
+        inst["DI"] = None
+        inst["IS"] = None
+        inst["WB"] = None
+        inst["CO"] = None
+        inst["psrcs"] = []
+        inst["new_phys"] = None
+        inst["old_phys"] = None
+
+    next_rename = 0
+    next_commit = 0
+
+    # Registers committed in cycle N become available in N+1.
+    freed_by_cycle = {}
+
+    cycle = 0
+
+    while next_commit < count:
+        # First, make registers freed in the previous cycle
+        # available for allocation.
+        if cycle in freed_by_cycle:
+            free_registers.extend(freed_by_cycle.pop(cycle))
+
+        # Commit in program order, up to issue_width instructions.
+        committed_this_cycle = 0
+
+        while (next_commit < count and
+               committed_this_cycle < issue_width):
+            inst = instructions[next_commit]
+
+            if inst["WB"] is None or inst["WB"] >= cycle:
+                break
+
+            inst["CO"] = cycle
+
+            # Free the overwritten physical register.
+            if inst["old_phys"] is not None:
+                freed_by_cycle.setdefault(cycle + 1, []).append(
+                    inst["old_phys"]
+                )
+
+            next_commit += 1
+            committed_this_cycle += 1
+
+        # Rename in program order. The first instruction unable
+        # to obtain a destination physical register blocks younger
+        # instructions from renaming in this cycle.
+        renamed_this_cycle = 0
+
+        while (next_rename < count and
+               renamed_this_cycle < issue_width):
+            inst = instructions[next_rename]
+
+            # RE cannot complete until the cycle after DE.
+            if inst["DE"] >= cycle:
+                break
+
+            if inst["dest"] is not None and not free_registers:
+                break
+
+            # Read source mappings before updating the destination.
+            inst["psrcs"] = [
+                mapping[arch_reg] for arch_reg in inst["srcs"]
+            ]
+
+            if inst["dest"] is not None:
+                new_phys = free_registers.pop(0)
+                old_phys = mapping[inst["dest"]]
+
+                inst["new_phys"] = new_phys
+                inst["old_phys"] = old_phys
+
+                mapping[inst["dest"]] = new_phys
+                ready_cycle[new_phys] = float("inf")
+
+            inst["RE"] = cycle
+            inst["DI"] = cycle + 1
+
+            next_rename += 1
+            renamed_this_cycle += 1
+
+        # Select ready instructions from the issue queue.
+        # Iteration in program order gives older ready instructions
+        # priority, while still allowing out-of-order execution.
+        issued_this_cycle = 0
+
+        for inst in instructions:
+            if issued_this_cycle >= issue_width:
+                break
+
+            if inst["IS"] is not None:
+                continue
+
+            # DI must have completed before issue.
+            if inst["DI"] is None or inst["DI"] >= cycle:
+                continue
+
+            # All source physical registers must be ready before
+            # the current cycle.
+            operands_ready = all(
+                ready_cycle[p] <= cycle for p in inst["psrcs"]
+            )
+
+            if not operands_ready:
+                continue
+
+            # Conservative memory ordering:
+            # every older memory instruction must have issued in
+            # an earlier cycle. This also prevents two memory
+            # operations from issuing in the same cycle.
+            if inst["op"] in ("L", "S"):
+                memory_order_ok = True
+
+                for older in instructions[:inst["index"]]:
+                    if older["op"] in ("L", "S"):
+                        if (older["IS"] is None or
+                                older["IS"] >= cycle):
+                            memory_order_ok = False
+                            break
+
+                if not memory_order_ok:
+                    continue
+
+            inst["IS"] = cycle
+            inst["WB"] = cycle + 1
+
+            # Destination values become usable in the cycle
+            # after writeback completes.
+            if inst["new_phys"] is not None:
+                ready_cycle[inst["new_phys"]] = inst["WB"]
+
+            issued_this_cycle += 1
+
+        cycle += 1
+
+    return instructions
+
+
+def main():
+    # Always create/truncate the output file, including on errors.
+    try:
+        output = open("out.txt", "w")
+    except OSError:
+        return
+
+    try:
+        if len(sys.argv) != 2:
+            return
+
+        try:
+            physical_registers, issue_width, instructions = parse_file(
+                sys.argv[1]
+            )
+        except (InputError, OSError, ValueError):
+            return
+
+        instructions = schedule(
+            physical_registers, issue_width, instructions
+        )
+
+        for inst in instructions:
+            output.write("{},{},{},{},{},{},{}\n".format(
+                inst["FE"],
+                inst["DE"],
+                inst["RE"],
+                inst["DI"],
+                inst["IS"],
+                inst["WB"],
+                inst["CO"]
+            ))
+
+    finally:
+        output.close()
+
+
+if __name__ == "__main__":
+    main()
