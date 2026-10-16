@@ -2,13 +2,13 @@ import sys
 from Parser import parse_file, InputError
 
 # Simulation configuration and instruction tracking
-physical_registers = 0
+phys_reg = 0
 issue_width = 0
 instructions = []
 icount = 0
 cyclecount = 0
 mapping = []
-free_registers = []
+free_reg = []
 ready_cycle = []
 freed_by_cycle = {}
 
@@ -18,16 +18,16 @@ next_commit = 0
 
 def initStructuresAndCounts():
     # Read input and initialize registers and instructions
-    global physical_registers, issue_width, instructions, icount
-    global mapping, free_registers, ready_cycle
+    global phys_reg, issue_width, instructions, icount
+    global mapping, free_reg, ready_cycle
     global next_rename, next_commit, freed_by_cycle, cyclecount
 
-    physical_registers, issue_width, instructions = parse_file(sys.argv[1])
+    phys_reg, issue_width, instructions = parse_file(sys.argv[1])
     icount = len(instructions)
 
     mapping = list(range(32))
-    free_registers = list(range(32, physical_registers))
-    ready_cycle = [0] * physical_registers
+    free_reg = list(range(32, phys_reg))
+    ready_cycle = [0] * phys_reg
 
     for inst in instructions:
         inst.update({
@@ -50,12 +50,11 @@ def initStructuresAndCounts():
 
 
 def commit():
-    # Commit completed instructions in program order
     global next_commit, freed_by_cycle, cyclecount 
-    global instructions, issue_width, icount, free_registers
+    global instructions, issue_width, icount, free_reg
     
-    # Free registers scheduled to be released this cycle
-    free_registers.extend(freed_by_cycle.pop(cyclecount, []))
+    # Free registers to be released in this cycle
+    free_reg.extend(freed_by_cycle.pop(cyclecount, []))
 
     committed = 0
 
@@ -79,7 +78,6 @@ def writeback():
     # Complete writeback for instructions issued last cycle
     global cyclecount, instructions, ready_cycle
 
-    # Instructions write back in the cycle after issue.
     for inst in instructions:
         if inst["IS"] is None or inst["WB"] is not None:
             continue
@@ -87,7 +85,6 @@ def writeback():
         if inst["IS"] + 1 <= cyclecount:
             inst["WB"] = inst["IS"] + 1
 
-            # The destination becomes available at writeback.
             if inst["new_phys"] is not None:
                 ready_cycle[inst["new_phys"]] = inst["WB"]
 
@@ -97,7 +94,7 @@ def issue():
     global cyclecount, instructions, issue_width, ready_cycle
 
     issued = 0
-    memory_issued_this_cycle = []
+    mem_issued_this_cycle = []
 
     for inst in instructions:
         if issued >= issue_width:
@@ -118,12 +115,12 @@ def issue():
         if inst["op"] in ("L", "S"):
             blocked = False
 
-            # Older stores must issue before younger memory operations.
-            for older in instructions[:inst["index"]]:
-                if older["op"] == "S":
+            # issue old instr stores before new memory operation
+            for old in instructions[:inst["index"]]:
+                if old["op"] == "S":
                     if (
-                        older["IS"] is None
-                        or older["IS"] >= cyclecount
+                        old["IS"] is None
+                        or old["IS"] >= cyclecount
                     ):
                         blocked = True
                         break
@@ -131,19 +128,19 @@ def issue():
             if blocked:
                 continue
 
-            # Stores cannot issue with another memory operation.
+            # cannot issue stores with another memory operation.
             if (
                 inst["op"] == "S"
-                and memory_issued_this_cycle
+                and mem_issued_this_cycle
             ):
                 continue
 
-            # Loads cannot issue in a cycle containing a store.
+            # cannot issue loads in a cycle with a store.
             if (
                 inst["op"] == "L"
                 and any(
                     issued_mem["op"] == "S"
-                    for issued_mem in memory_issued_this_cycle
+                    for issued_mem in mem_issued_this_cycle
                 )
             ):
                 continue
@@ -152,33 +149,33 @@ def issue():
         inst["IS"] = cyclecount
 
         if inst["op"] in ("L", "S"):
-            memory_issued_this_cycle.append(inst)
+            mem_issued_this_cycle.append(inst)
 
         issued += 1
 
 
 def dispatch():
-    # Move renamed instructions toward the issue queue
-    # Dispatch coordination happens between rename and issue queue
+    # Move renamed instructions to the issue queue
+    # Dispatch happens between rename and issue queue
     pass
 
 
 def rename():
-    # Rename architectural registers to physical registers
+    # Rename arch registers to phys registers
     global next_rename, cyclecount, instructions, issue_width
-    global icount, mapping, free_registers, ready_cycle
+    global icount, mapping, free_reg, ready_cycle
 
     renamed = 0
 
     while next_rename < icount and renamed < issue_width:
         inst = instructions[next_rename]
 
-        # Decode must have completed in an earlier cycle
+        # Decode must be completed in an earlier cycle
         if inst["DE"] is None or inst["DE"] >= cyclecount:
             break
 
         # Stall if no phys register is available
-        if inst["dest"] is not None and not free_registers:
+        if inst["dest"] is not None and not free_reg:
             break
 
         inst["psrcs"] = [
@@ -186,7 +183,7 @@ def rename():
         ]
 
         if inst["dest"] is not None:
-            new_phys = free_registers.pop(0)
+            new_phys = free_reg.pop(0)
 
             inst["new_phys"] = new_phys
             inst["old_phys"] = mapping[inst["dest"]]
@@ -204,7 +201,7 @@ def rename():
 def decode():
     global cyclecount,instructions 
     
-    # No decode stalls: DE = FE + 1.
+    # check for decode stalls
     for inst in instructions:
         if inst["FE"] is not None and inst["DE"] is None:
             if inst["FE"] + 1 <= cyclecount:
@@ -214,7 +211,6 @@ def decode():
 def fetch():
     global cyclecount, instructions, icount, issue_width
 
-    # Fetch up to issue_width instructions each cycle.
     fetched = 0
 
     for i, inst in enumerate(instructions):
@@ -234,7 +230,7 @@ def fetch():
 
 
 def emitOutput():
-    # Write all seven stage cycles to out.txt
+    # Write the seven stage cycles to out.txt
     with open("out.txt", "w") as output:
         for inst in instructions:
             output.write("{},{},{},{},{},{},{}\n".format(
