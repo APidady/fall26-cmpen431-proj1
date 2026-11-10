@@ -16,23 +16,21 @@ class CacheLevel(Level):
         self.block_offset_bits = int(math.log2(block_size))
         self.num_sets = size // (block_size * associativity)
         self.index_bits = int(math.log2(self.num_sets)) if self.num_sets > 1 else 0
-        self.tag_bits = 32 - self.index_bits - self.block_offset_bits
+        #self.tag_bits = 32 - self.index_bits - self.block_offset_bits
 
         self.sets = [OrderedDict() for _ in range(self.num_sets)]
 
     def _calculate_index(self, address):
-        if self.index_bits == 0:
-            return 0
-        return (address >> self.block_offset_bits) & ((1 << self.index_bits) - 1)
+        return (address // self.block_size) % self.num_sets
 
     def _calculate_tag(self, address):
-        return address >> (self.block_offset_bits + self.index_bits)
+        return (address // self.block_size) // self.num_sets
 
     def _calculate_block_address(self, address):
         return address & ~(self.block_size - 1)
 
     def _calculate_block_address_from_tag_index(self, tag, cache_index):
-        return ((tag << self.index_bits) | cache_index) << self.block_offset_bits
+        return (tag * self.num_sets + cache_index) * self.block_size
 
     def is_dirty(self, block_address):
         index = self._calculate_index(block_address)
@@ -80,7 +78,6 @@ class CacheLevel(Level):
                 self.evict(index)
             
             # Allocate space for the new block
-            #self.sets[index][tag] = {'dirty': False}
             self.sets[index][tag] = {'dirty': operation == 'B'}
 
             if operation != 'B':
