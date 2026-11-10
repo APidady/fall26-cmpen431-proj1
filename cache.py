@@ -13,9 +13,6 @@ class CacheLevel(Level):
         self.write_policy = write_policy  # always WB for this assignment
 
         # define other structures / metadata here (hint, check the imports)
-        # todo define number of sets
-        # todo define metadata structures (tags, dirty bits, etc...)
-        # todo anything else you may want...
         self.block_offset_bits = int(math.log2(block_size))
         self.num_sets = size // (block_size * associativity)
         self.index_bits = int(math.log2(self.num_sets)) if self.num_sets > 1 else 0
@@ -24,31 +21,29 @@ class CacheLevel(Level):
         self.sets = [OrderedDict() for _ in range(self.num_sets)]
 
     def _calculate_index(self, address):
-        #return 0  # todo
         if self.index_bits == 0:
             return 0
         return (address >> self.block_offset_bits) & ((1 << self.index_bits) - 1)
 
     def _calculate_tag(self, address):
-        #return 0  # todo
         return address >> (self.block_offset_bits + self.index_bits)
 
     def _calculate_block_address(self, address):
-        #return 0  # todo
         return address & ~(self.block_size - 1)
 
     def _calculate_block_address_from_tag_index(self, tag, cache_index):
-        #return 0  # todo
         return ((tag << self.index_bits) | cache_index) << self.block_offset_bits
 
     def is_dirty(self, block_address):
-        #return True|False  # todo
         index = self._calculate_index(block_address)
         tag = self._calculate_tag(block_address)
+
         if tag in self.sets[index]:
             return self.sets[index][tag]['dirty']
+
         if self.higher_level and hasattr(self.higher_level, 'is_dirty'):
             return self.higher_level.is_dirty(block_address)
+
         return False
 
     def access(self, operation, address):
@@ -62,7 +57,6 @@ class CacheLevel(Level):
         on the higher levels to propagate the block. Finally, if the block fetched from the higher block is dirty, set
         our block to also be dirty.
         """
-        #pass  # todo
         index = self._calculate_index(address)
         tag = self._calculate_tag(address)
         block_address = self._calculate_block_address(address)
@@ -70,28 +64,34 @@ class CacheLevel(Level):
         if tag in self.sets[index]:
             # Hit
             self.report_hit(operation, address)
+
             if operation != 'B':
                 if self.eviction_policy in {'LRU', 'MRU'}:
                     self.sets[index].move_to_end(tag)
-            if operation == 'W':
+
+            if operation == 'W' or operation == 'B':
                 self.sets[index][tag]['dirty'] = True
+
         else:
             # Miss
             self.report_miss(operation, address)
+
             if len(self.sets[index]) >= self.associativity:
                 self.evict(index)
             
             # Allocate space for the new block
-            self.sets[index][tag] = {'dirty': False}
+            #self.sets[index][tag] = {'dirty': False}
+            self.sets[index][tag] = {'dirty': operation == 'B'}
+
             if operation != 'B':
                 if self.eviction_policy in {'LRU', 'MRU'}:
                     self.sets[index].move_to_end(tag)
             
             # Transfer to higher memory level
-            if self.higher_level:
-                self.higher_level.access('R' if operation != 'B' else 'B', address)
+            if operation != 'B' and self.higher_level:
+                self.higher_level.access('R', address)
             
-            # If block fetched from the higher block is dirty, mark block as dirty
+            # Check whether the block fetched from the higher level is dirty
             if self.higher_level and hasattr(self.higher_level, 'is_dirty'):
                 if self.higher_level.is_dirty(block_address):
                     self.sets[index][tag]['dirty'] = True
@@ -105,11 +105,12 @@ class CacheLevel(Level):
         then invalidate said block.
         """
         # select a victim block in the set provided the eviction policy (FIFO | LRU | MRU)
-        #victim_block_tag = None  # todo
         if self.eviction_policy in {'FIFO', 'LRU'}:
             victim_block_tag = next(iter(self.sets[cache_index]))
+
         elif self.eviction_policy == 'MRU':
             victim_block_tag = list(self.sets[cache_index].keys())[-1]
+
         else:
             victim_block_tag = next(iter(self.sets[cache_index]))
 
@@ -125,14 +126,13 @@ class CacheLevel(Level):
         writeback and report that. Finally, once all lower levels have been invalidated we can remove the block from
         our level and report the eviction.
         """
-        #pass  # todo
         index = self._calculate_index(block_address)
         tag = self._calculate_tag(block_address)
 
         if tag not in self.sets[index]:
             return
 
-        # Invalidate lower levels (CPU-side / higher hierarchy level) first due to inclusion property
+        # Invalidate lower levels due to inclusion property
         if self.lower_level and hasattr(self.lower_level, 'invalidate'):
             self.lower_level.invalidate(block_address)
 
