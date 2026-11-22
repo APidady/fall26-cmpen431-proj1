@@ -1,11 +1,24 @@
-PYTHON = python3
+.PHONY: clean NUKE
 
-.PHONY: all test clean
+all: DSE
 
-all: test
-
-test:
-	$(PYTHON) OoOScheduler.py test.in > out.txt
+DSE: 431project.cpp 431project.h 431projectUtils.cpp YOURCODEHERE.cpp
+	g++ -O3 431project.cpp 431projectUtils.cpp YOURCODEHERE.cpp -lm -o DSE ; chmod +x worker.sh
 
 clean:
-	rm -f out.txt
+	-rm DSE
+
+NUKE:
+	-rm DSE; rm -rf rawProjectOutputData summaryfiles logs
+
+RUN_ED2P:
+	./DSE e
+
+RUN_EDP:
+	./DSE p
+
+RUN_EDAP:
+	./DSE d
+
+RUN_ED2AP:
+	./DSE D
