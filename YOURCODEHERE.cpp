@@ -14,12 +14,11 @@
 #include "431project.h"
 
 
-
-
 /*
  * Not all configurations are inherently valid. (For example, L1 > L2). 
  * Returns 1 if valid, else 0.
  */
+
 int validateConfiguration(std::string configuration){
     // is the configuration at least describing 18 integers/indices?
     if (isan18dimconfiguration(configuration) != 1)
@@ -33,6 +32,130 @@ int validateConfiguration(std::string configuration){
     // 
     // FIXME - YOUR VERIFICATION CODE HERE 
     // ...
+
+    int l1BlockChoices[4] = {8, 16, 32, 64};
+    int l1AssocChoices[3] = {1, 2, 4};
+    int l1SetsChoices[9] = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+
+    int ul2SetsChoices[10] = {256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072};
+    int ul2BlockChoices[4] = {16, 32, 64, 128};
+    int ul2AssocChoices[5] = {1, 2, 4, 8, 16};
+
+    int l1BlockBytes = l1BlockChoices[configurationDimsAsInts[0]];
+    int ul2BlockBytes = ul2BlockChoices[configurationDimsAsInts[11]];
+
+    // Model requirement: UL2 block size must be at least 2x L1 block size and at most 128 bytes
+    if (ul2BlockBytes < 2 * l1BlockBytes || ul2BlockBytes > 128) {
+        return 0;
+    }
+
+    int dl1Assoc = l1AssocChoices[configurationDimsAsInts[7]];
+    int il1Assoc = l1AssocChoices[configurationDimsAsInts[9]];
+    int ul2Assoc = ul2AssocChoices[configurationDimsAsInts[12]];
+
+    int dl1Sets = l1SetsChoices[configurationDimsAsInts[6]];
+    int il1Sets = l1SetsChoices[configurationDimsAsInts[8]];
+    int ul2Sets = ul2SetsChoices[configurationDimsAsInts[10]];
+
+    long long dl1Bytes = (long long)dl1Sets * dl1Assoc * l1BlockBytes;
+    long long il1Bytes = (long long)il1Sets * il1Assoc * l1BlockBytes;
+    long long ul2Bytes = (long long)ul2Sets * ul2Assoc * ul2BlockBytes;
+
+    // Model requirement: cache sizes must not exceed 2 MB (2097152 bytes)
+    if (dl1Bytes > 2097152 || il1Bytes > 2097152 || ul2Bytes > 2097152) {
+        return 0;
+    }
+
+    // Model requirement: UL2 must be inclusive (at least as large as IL1 + DL1)
+    if (ul2Bytes < il1Bytes + dl1Bytes) {
+        return 0;
+    }
+
+    // Model requirement: DL1 latency follows size (8KB->1, 16KB->2, 32KB->3, 64KB->4) 
+    // with associativity (+1 for 2-way, +2 for 4-way)
+    long long dl1KB = dl1Bytes / 1024;
+    int dl1BaseLatency = 4;
+    if (dl1KB <= 8) {
+        dl1BaseLatency = 1;
+    } else if (dl1KB <= 16) {
+        dl1BaseLatency = 2;
+    } else if (dl1KB <= 32) {
+        dl1BaseLatency = 3;
+    } else {
+        dl1BaseLatency = 4;
+    }
+
+    int dl1AssocPenalty = 0;
+    if (dl1Assoc == 2) {
+        dl1AssocPenalty = 1;
+    } else if (dl1Assoc == 4) {
+        dl1AssocPenalty = 2;
+    }
+
+    int dl1Latency = 1 + configurationDimsAsInts[14];
+    if (dl1Latency != dl1BaseLatency + dl1AssocPenalty) {
+        return 0;
+    }
+
+    // Model requirement: IL1 latency follows size (8KB->1, 16KB->2, 32KB->3, 64KB->4) 
+    // with associativity (+1 for 2-way, +2 for 4-way)
+    long long il1KB = il1Bytes / 1024;
+    int il1BaseLatency = 4;
+    if (il1KB <= 8) {
+        il1BaseLatency = 1;
+    } else if (il1KB <= 16) {
+        il1BaseLatency = 2;
+    } else if (il1KB <= 32) {
+        il1BaseLatency = 3;
+    } else {
+        il1BaseLatency = 4;
+    }
+
+    int il1AssocPenalty = 0;
+    if (il1Assoc == 2) {
+        il1AssocPenalty = 1;
+    } else if (il1Assoc == 4) {
+        il1AssocPenalty = 2;
+    }
+
+    int il1Latency = 1 + configurationDimsAsInts[15];
+    if (il1Latency != il1BaseLatency + il1AssocPenalty) {
+        return 0;
+    }
+
+    // Model requirement: UL2 latency follows size (128KB->7 up to 2MB->11 at 4-way) 
+    // with associativity adjustment (-2/-1/0/+1/+2)
+    long long ul2KB = ul2Bytes / 1024;
+    int ul2BaseLatency = 7;
+    if (ul2KB <= 128) {
+        ul2BaseLatency = 7;
+    } else if (ul2KB <= 256) {
+        ul2BaseLatency = 8;
+    } else if (ul2KB <= 512) {
+        ul2BaseLatency = 9;
+    } else if (ul2KB <= 1024) {
+        ul2BaseLatency = 10;
+    } else {
+        ul2BaseLatency = 11;
+    }
+
+    int ul2AssocAdjust = 0;
+    if (ul2Assoc == 1) {
+        ul2AssocAdjust = -2;
+    } else if (ul2Assoc == 2) {
+        ul2AssocAdjust = -1;
+    } else if (ul2Assoc == 4) {
+        ul2AssocAdjust = 0;
+    } else if (ul2Assoc == 8) {
+        ul2AssocAdjust = 1;
+    } else if (ul2Assoc == 16) {
+        ul2AssocAdjust = 2;
+    }
+
+    int ul2Latency = 5 + configurationDimsAsInts[16];
+    if (ul2Latency != ul2BaseLatency + ul2AssocAdjust) {
+        return 0;
+    }
 
     return returnValue;
 }
