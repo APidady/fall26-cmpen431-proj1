@@ -33,13 +33,13 @@ int validateConfiguration(std::string configuration){
     // FIXME - YOUR VERIFICATION CODE HERE 
     // ...
 
-    int l1BlockChoices[4] = {8, 16, 32, 64};
-    int l1AssocChoices[3] = {1, 2, 4};
-    int l1SetsChoices[9] = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
+    const int l1BlockChoices[4] = {8, 16, 32, 64};
+    const int l1AssocChoices[3] = {1, 2, 4};
+    const int l1SetsChoices[9] = {32, 64, 128, 256, 512, 1024, 2048, 4096, 8192};
 
-    int ul2SetsChoices[10] = {256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072};
-    int ul2BlockChoices[4] = {16, 32, 64, 128};
-    int ul2AssocChoices[5] = {1, 2, 4, 8, 16};
+    const int ul2SetsChoices[10] = {256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072};
+    const int ul2BlockChoices[4] = {16, 32, 64, 128};
+    const int ul2AssocChoices[5] = {1, 2, 4, 8, 16};
 
     int l1BlockBytes = l1BlockChoices[configurationDimsAsInts[0]];
     int ul2BlockBytes = ul2BlockChoices[configurationDimsAsInts[11]];
@@ -61,8 +61,22 @@ int validateConfiguration(std::string configuration){
     long long il1Bytes = (long long)il1Sets * il1Assoc * l1BlockBytes;
     long long ul2Bytes = (long long)ul2Sets * ul2Assoc * ul2BlockBytes;
 
-    // Model requirement: cache sizes must not exceed 2 MB (2097152 bytes)
-    if (dl1Bytes > 2097152 || il1Bytes > 2097152 || ul2Bytes > 2097152) {
+    // Model requirement: L1 caches must be exactly 8, 16, 32, or 64 KB
+    bool validDL1Size = false;
+    bool validIL1Size = false;
+
+    int validL1Sizes[4] = {8192, 16384, 32768, 65536};
+
+    for (int i = 0; i < 4; i++) {
+        if (dl1Bytes == validL1Sizes[i]) {
+            validDL1Size = true;
+        }
+        if (il1Bytes == validL1Sizes[i]) {
+            validIL1Size = true;
+        }
+    }
+
+    if (!validDL1Size || !validIL1Size) {
         return 0;
     }
 
@@ -71,21 +85,23 @@ int validateConfiguration(std::string configuration){
         return 0;
     }
 
-    // Model requirement: DL1 latency follows size (8KB->1, 16KB->2, 32KB->3, 64KB->4) 
-    // with associativity (+1 for 2-way, +2 for 4-way)
-    long long dl1KB = dl1Bytes / 1024;
-    int dl1BaseLatency = 4;
-    if (dl1KB <= 8) {
+    // Model requirement: DL1 latency follows size 
+    // 8KB->1, 16KB->2, 32KB->3, 64KB->4 
+    int dl1BaseLatency = 0;
+
+    if (dl1Bytes == 8192) {
         dl1BaseLatency = 1;
-    } else if (dl1KB <= 16) {
+    } else if (dl1Bytes == 16384) {
         dl1BaseLatency = 2;
-    } else if (dl1KB <= 32) {
+    } else if (dl1Bytes == 32768) {
         dl1BaseLatency = 3;
-    } else {
+    } else if (dl1Bytes == 65536) {
         dl1BaseLatency = 4;
     }
 
+    // For 2-way add 1 cycle penalty, for 4-way add 2 cycle penalty
     int dl1AssocPenalty = 0;
+
     if (dl1Assoc == 2) {
         dl1AssocPenalty = 1;
     } else if (dl1Assoc == 4) {
@@ -93,25 +109,28 @@ int validateConfiguration(std::string configuration){
     }
 
     int dl1Latency = 1 + configurationDimsAsInts[14];
+
     if (dl1Latency != dl1BaseLatency + dl1AssocPenalty) {
         return 0;
     }
 
-    // Model requirement: IL1 latency follows size (8KB->1, 16KB->2, 32KB->3, 64KB->4) 
-    // with associativity (+1 for 2-way, +2 for 4-way)
-    long long il1KB = il1Bytes / 1024;
-    int il1BaseLatency = 4;
-    if (il1KB <= 8) {
+    // Model requirement: IL1 latency follows size 
+    // 8KB->1, 16KB->2, 32KB->3, 64KB->4 
+    int il1BaseLatency = 0;
+
+    if (il1Bytes == 8192) {
         il1BaseLatency = 1;
-    } else if (il1KB <= 16) {
+    } else if (il1Bytes == 16384) {
         il1BaseLatency = 2;
-    } else if (il1KB <= 32) {
+    } else if (il1Bytes == 32768) {
         il1BaseLatency = 3;
-    } else {
+    } else if (il1Bytes == 65536) {
         il1BaseLatency = 4;
     }
 
+    // For 2-way add 1 cycle penalty, for 4-way add 2 cycle penalty
     int il1AssocPenalty = 0;
+
     if (il1Assoc == 2) {
         il1AssocPenalty = 1;
     } else if (il1Assoc == 4) {
@@ -119,27 +138,31 @@ int validateConfiguration(std::string configuration){
     }
 
     int il1Latency = 1 + configurationDimsAsInts[15];
+
     if (il1Latency != il1BaseLatency + il1AssocPenalty) {
         return 0;
     }
 
-    // Model requirement: UL2 latency follows size (128KB->7 up to 2MB->11 at 4-way) 
-    // with associativity adjustment (-2/-1/0/+1/+2)
-    long long ul2KB = ul2Bytes / 1024;
-    int ul2BaseLatency = 7;
-    if (ul2KB <= 128) {
+    // Model requirement: UL2 latency follows size 
+    // 128KB->7 up to 2MB->11 at 4-way 
+
+    int ul2BaseLatency = 0;
+
+    if (ul2Bytes == 131072) {
         ul2BaseLatency = 7;
-    } else if (ul2KB <= 256) {
+    } else if (ul2Bytes == 262144) {
         ul2BaseLatency = 8;
-    } else if (ul2KB <= 512) {
+    } else if (ul2Bytes == 524288) {
         ul2BaseLatency = 9;
-    } else if (ul2KB <= 1024) {
+    } else if (ul2Bytes == 1048576) {
         ul2BaseLatency = 10;
-    } else {
+    } else if (ul2Bytes == 2097152) {
         ul2BaseLatency = 11;
     }
 
+    // associativity adjustment -2/-1/0/+1/+2
     int ul2AssocAdjust = 0;
+
     if (ul2Assoc == 1) {
         ul2AssocAdjust = -2;
     } else if (ul2Assoc == 2) {
@@ -197,6 +220,7 @@ std::string YourProposalFunction(
 
     // start with the best config for optimzation run
     std::string targetBestCfg = bestEDPconfiguration;
+
     if (optimizeforED2P) {
         targetBestCfg = bestED2Pconfiguration;
     } else if (optimizeforEDP) {
@@ -234,8 +258,8 @@ std::string YourProposalFunction(
         copyCfg(baseCfg, nextCfg);
 
         // RUU and LSQ grow quadratically in area, so reduce both of them
-        nextCfg[3] -= 1;
-        nextCfg[4] -= 1;
+        nextCfg[3]--;
+        nextCfg[4]--;
 
         if (nextCfg[3] < 0) {
             nextCfg[3] = 0;
@@ -245,16 +269,18 @@ std::string YourProposalFunction(
         }
 
         outCfg = compactConfiguration(nextCfg);
-        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
- 	    return outCfg;
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
+            return outCfg;
         }
 
         // reset the nextCfg
         copyCfg(baseCfg, nextCfg);
 
         // L2 is bigger, so try to lower ul2 sets and ul2 latency
-        nextCfg[10] -= 1;
-        nextCfg[16] -= 1;
+        nextCfg[10]--;
+        nextCfg[16]--;
 
         if (nextCfg[10] < 0) {
             nextCfg[10] = 0;
@@ -264,7 +290,9 @@ std::string YourProposalFunction(
         }
 
         outCfg = compactConfiguration(nextCfg);
-        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
             return outCfg;
         }
 
@@ -272,15 +300,19 @@ std::string YourProposalFunction(
         copyCfg(baseCfg, nextCfg);
 
         // Try reducing the width
-        nextCfg[0] -= 1;
+        nextCfg[0]--;
 
         if (nextCfg[0] < 0) {
             nextCfg[0] = 0;
         }
+
         outCfg = compactConfiguration(nextCfg);
-        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
             return outCfg;
         }
+
     }
 
     // ED2P squares execution time, optimize for wider/faster dimensions 
@@ -289,15 +321,51 @@ std::string YourProposalFunction(
         // reset the nextCfg
         copyCfg(baseCfg, nextCfg);
         
-        // Try increasing the width
-        nextCfg[0] += 1;
+        // keep the width of 1 or 2
+        nextCfg[0]++;
 
-        if (nextCfg[0] > maxWidth) {
-            nextCfg[0] = maxWidth;
+        if (nextCfg[0] < 1) {
+            nextCfg[0] = 1;
         }
 
         outCfg = compactConfiguration(nextCfg);
-        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
+            return outCfg;
+        }
+
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+
+        // Try increasing RUU size
+        nextCfg[3]++;
+
+        if (nextCfg[3] > maxRuu)
+            nextCfg[3] = maxRuu;
+
+        outCfg = compactConfiguration(nextCfg);
+
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
+            return outCfg;
+        }
+
+        // Try increasing LSQ size
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+
+        nextCfg[4]++;
+
+        if (nextCfg[4] > maxLsq)
+            nextCfg[4] = maxLsq;
+
+        outCfg = compactConfiguration(nextCfg);
+
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
             return outCfg;
         }
 
@@ -305,8 +373,8 @@ std::string YourProposalFunction(
         copyCfg(baseCfg, nextCfg);
 
         // Try increasing the UL2 set and latency 
-        nextCfg[10] += 1;
-        nextCfg[16] += 1;
+        nextCfg[10]++;
+        nextCfg[16]++;
 
         if (nextCfg[10] > maxUl2Sets) {
             nextCfg[10] = maxUl2Sets;
@@ -316,14 +384,33 @@ std::string YourProposalFunction(
         }
 
         outCfg = compactConfiguration(nextCfg);
-        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
             return outCfg;
         }
     }
 
+
     // reset the nextCfg
     copyCfg(baseCfg, nextCfg);
 
+    // Try changing TLB size
+    nextCfg[13]++;
+
+    if (nextCfg[13] >= (int)GLOB_dimensioncardinality[13])
+        nextCfg[13] = 0;
+
+    outCfg = compactConfiguration(nextCfg);
+
+    if (validateConfiguration(outCfg) == 1 &&
+        GLOB_seen_configurations.find(outCfg) ==
+        GLOB_seen_configurations.end()) {
+        return outCfg;
+    }
+
+    // reset the nextCfg
+    copyCfg(baseCfg, nextCfg);
   
     // Try in-order (0) vs out-of-order (1) scheduling
     if (optimizeforED2P) {
@@ -334,7 +421,9 @@ std::string YourProposalFunction(
         nextCfg[2] = (baseCfg[2] == 0) ? 1 : 0;
     }
     outCfg = compactConfiguration(nextCfg);
-    if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+    if (validateConfiguration(outCfg) == 1 &&
+        GLOB_seen_configurations.find(outCfg) ==
+        GLOB_seen_configurations.end()) {
         return outCfg;
     }
 
@@ -362,7 +451,9 @@ std::string YourProposalFunction(
     }
 
     outCfg = compactConfiguration(nextCfg);
-    if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+    if (validateConfiguration(outCfg) == 1 &&
+        GLOB_seen_configurations.find(outCfg) ==
+        GLOB_seen_configurations.end()) {
         return outCfg;
     }
 
