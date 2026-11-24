@@ -160,7 +160,12 @@ int validateConfiguration(std::string configuration){
     return returnValue;
 }
 
-
+/* Helper Function */
+void copyCfg(int src[18], int dst[18]) {
+    for (int i = 0; i < 18; i++) {
+        dst[i] = src[i];
+    }
+}
 
 
 /*
@@ -189,13 +194,194 @@ std::string YourProposalFunction(
     * will produce configurations that, while properly formatted, 
     * violate specified project constraints
     */    
-  
-    // produces an essentially random proposal
-    int configuration[18];
-    for(int dim = 0; dim < 18; dim++){
-        configuration[dim] = rand() % GLOB_dimensioncardinality[dim];
+
+    // start with the best config for optimzation run
+    std::string targetBestCfg = bestEDPconfiguration;
+    if (optimizeforED2P) {
+        targetBestCfg = bestED2Pconfiguration;
+    } else if (optimizeforEDP) {
+        targetBestCfg = bestEDPconfiguration;
+    } else if (optimizeforEDAP) {
+        targetBestCfg = bestEDAPconfiguration;
+    } else if (optimizeforED2AP) {
+        targetBestCfg = bestED2APconfiguration;
     }
 
-    return compactConfiguration(configuration);
+    int baseCfg[18];
+    extractConfiguration(targetBestCfg, baseCfg);
+
+    // replace bpred perfect branch predictor
+    if (baseCfg[17] == 0) {
+        baseCfg[17] = 2;
+    }
+
+    // indices are 0 based but GLOB_dimension holds total counts
+    int maxWidth = (int)GLOB_dimensioncardinality[0] - 1;
+    int maxRuu = (int)GLOB_dimensioncardinality[3] - 1;
+    int maxLsq = (int)GLOB_dimensioncardinality[4] - 1;
+    int maxDl1Sets = (int)GLOB_dimensioncardinality[6] - 1;
+    int maxDl1Lat = (int)GLOB_dimensioncardinality[14] - 1;
+    int maxUl2Sets = (int)GLOB_dimensioncardinality[10] - 1;
+    int maxUl2Lat = (int)GLOB_dimensioncardinality[16] - 1;
+
+    int nextCfg[18];
+    std::string outCfg;
+
+    // EDAP and ED2AP multiply by area, try to reduce area related dimensions
+    if (optimizeforEDAP || optimizeforED2AP) {
+
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+
+        // RUU and LSQ grow quadratically in area, so reduce both of them
+        nextCfg[3] -= 1;
+        nextCfg[4] -= 1;
+
+        if (nextCfg[3] < 0) {
+            nextCfg[3] = 0;
+        }
+        if (nextCfg[4] < 0) {
+            nextCfg[4] = 0;
+        }
+
+        outCfg = compactConfiguration(nextCfg);
+        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+ 	    return outCfg;
+        }
+
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+
+        // L2 is bigger, so try to lower ul2 sets and ul2 latency
+        nextCfg[10] -= 1;
+        nextCfg[16] -= 1;
+
+        if (nextCfg[10] < 0) {
+            nextCfg[10] = 0;
+        }
+        if (nextCfg[16] < 0) {
+            nextCfg[16] = 0;
+        }
+
+        outCfg = compactConfiguration(nextCfg);
+        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+            return outCfg;
+        }
+
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+
+        // Try reducing the width
+        nextCfg[0] -= 1;
+
+        if (nextCfg[0] < 0) {
+            nextCfg[0] = 0;
+        }
+        outCfg = compactConfiguration(nextCfg);
+        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+            return outCfg;
+        }
+    }
+
+    // ED2P squares execution time, optimize for wider/faster dimensions 
+    if (optimizeforED2P) {
+
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+        
+        // Try increasing the width
+        nextCfg[0] += 1;
+
+        if (nextCfg[0] > maxWidth) {
+            nextCfg[0] = maxWidth;
+        }
+
+        outCfg = compactConfiguration(nextCfg);
+        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+            return outCfg;
+        }
+
+        // reset the nextCfg
+        copyCfg(baseCfg, nextCfg);
+
+        // Try increasing the UL2 set and latency 
+        nextCfg[10] += 1;
+        nextCfg[16] += 1;
+
+        if (nextCfg[10] > maxUl2Sets) {
+            nextCfg[10] = maxUl2Sets;
+        }
+        if (nextCfg[16] > maxUl2Lat) {
+            nextCfg[16] = maxUl2Lat;
+        }
+
+        outCfg = compactConfiguration(nextCfg);
+        if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+            return outCfg;
+        }
+    }
+
+    // reset the nextCfg
+    copyCfg(baseCfg, nextCfg);
+
+  
+    // Try in-order (0) vs out-of-order (1) scheduling
+    if (optimizeforED2P) {
+        nextCfg[2] = 1;
+    } else if (optimizeforEDAP) {
+        nextCfg[2] = 0;
+    } else {
+        nextCfg[2] = (baseCfg[2] == 0) ? 1 : 0;
+    }
+    outCfg = compactConfiguration(nextCfg);
+    if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+        return outCfg;
+    }
+
+    // reset the nextCfg
+    copyCfg(baseCfg, nextCfg);
+
+    // try changing DL1 sets and latency 
+    // reduce when area matters, increase otherwise
+    int cacheStep = (optimizeforEDAP || optimizeforED2AP) ? -1 : 1;
+
+    nextCfg[6] += cacheStep;
+    nextCfg[14] += cacheStep;
+
+    if (nextCfg[6] < 0) {
+        nextCfg[6] = 0;
+    }
+    if (nextCfg[6] > maxDl1Sets) {
+        nextCfg[6] = maxDl1Sets;
+    }
+    if (nextCfg[14] < 0) {
+        nextCfg[14] = 0;
+    }
+    if (nextCfg[14] > maxDl1Lat) {
+        nextCfg[14] = maxDl1Lat;
+    }
+
+    outCfg = compactConfiguration(nextCfg);
+    if (validateConfiguration(outCfg) == 1 && !GLOB_seen_configurations[outCfg]) {
+        return outCfg;
+    }
+
+    // fallback if all our choices are around targetBestCfg
+    // and they were already seen or rejected
+    int curCfg[18];
+    extractConfiguration(currentconfiguration, curCfg);
+
+    // remove perfect branch prediction
+    if (curCfg[17] == 0) {
+        curCfg[17] = 2;
+    }
+
+    curCfg[0] += 1;
+    if (curCfg[0] > maxWidth) {
+        curCfg[0] = 0;
+    }
+
+    return compactConfiguration(curCfg);
 }
+
 
