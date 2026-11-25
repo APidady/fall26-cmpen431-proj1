@@ -234,7 +234,7 @@ std::string YourProposalFunction(
     int baseCfg[18];
     extractConfiguration(targetBestCfg, baseCfg);
 
-    // replace bpred perfect branch predictor
+    // replace perfect branch predictor
     if (baseCfg[17] == 0) {
         baseCfg[17] = 2;
     }
@@ -321,11 +321,11 @@ std::string YourProposalFunction(
         // reset the nextCfg
         copyCfg(baseCfg, nextCfg);
         
-        // keep the width of 1 or 2
+        // keep the width of 1 or 2 bcos of the crossed out??
         nextCfg[0]++;
 
-        if (nextCfg[0] < 1) {
-            nextCfg[0] = 1;
+        if (nextCfg[0] > maxWidth) {
+            nextCfg[0] = maxWidth;
         }
 
         outCfg = compactConfiguration(nextCfg);
@@ -459,20 +459,24 @@ std::string YourProposalFunction(
 
     // fallback if all our choices are around targetBestCfg
     // and they were already seen or rejected
-    int curCfg[18];
-    extractConfiguration(currentconfiguration, curCfg);
+    for (int i = 0; i < (int)GLOB_dimensioncardinality[0]; i++) {
 
-    // remove perfect branch prediction
-    if (curCfg[17] == 0) {
-        curCfg[17] = 2;
+        copyCfg(baseCfg, nextCfg);
+
+        nextCfg[0] = i;
+
+        outCfg = compactConfiguration(nextCfg);
+
+        if (validateConfiguration(outCfg) == 1 &&
+            GLOB_seen_configurations.find(outCfg) ==
+            GLOB_seen_configurations.end()) {
+            return outCfg;
+        }
     }
 
-    curCfg[0] += 1;
-    if (curCfg[0] > maxWidth) {
-        curCfg[0] = 0;
-    }
+    std::cerr << "ERROR: No valid, unexplored configuration found!" << std::endl;
+    exit(1);
 
-    return compactConfiguration(curCfg);
 }
 
 
