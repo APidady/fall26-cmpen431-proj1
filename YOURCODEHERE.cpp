@@ -158,6 +158,8 @@ int validateConfiguration(std::string configuration){
         ul2BaseLatency = 10;
     } else if (ul2Bytes == 2097152) {
         ul2BaseLatency = 11;
+    } else {
+        return 0 //unsupported UL2 size
     }
 
     // associativity adjustment -2/-1/0/+1/+2
@@ -176,6 +178,7 @@ int validateConfiguration(std::string configuration){
     }
 
     int ul2Latency = 5 + configurationDimsAsInts[16];
+
     if (ul2Latency != ul2BaseLatency + ul2AssocAdjust) {
         return 0;
     }
@@ -400,6 +403,23 @@ std::string YourProposalFunction(
 
     if (nextCfg[13] >= (int)GLOB_dimensioncardinality[13])
         nextCfg[13] = 0;
+
+    outCfg = compactConfiguration(nextCfg);
+
+    if (validateConfiguration(outCfg) == 1 &&
+        GLOB_seen_configurations.find(outCfg) ==
+        GLOB_seen_configurations.end()) {
+        return outCfg;
+    }
+
+    // Try changing branch predictor
+    copyCfg(baseCfg, nextCfg);
+
+    nextCfg[17]++;
+
+    if (nextCfg[17] >= (int)GLOB_dimensioncardinality[17]) {
+        nextCfg[17] = 1;
+    }
 
     outCfg = compactConfiguration(nextCfg);
 
