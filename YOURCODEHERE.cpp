@@ -159,7 +159,7 @@ int validateConfiguration(std::string configuration){
     } else if (ul2Bytes == 2097152) {
         ul2BaseLatency = 11;
     } else {
-        return 0 //unsupported UL2 size
+        return 0; //unsupported UL2 size
     }
 
     // associativity adjustment -2/-1/0/+1/+2
@@ -394,6 +394,52 @@ std::string YourProposalFunction(
         }
     }
 
+    // EDP optimization: balance energy and execution time
+    if (optimizeforEDP) {
+
+        // Try increasing processor width
+        copyCfg(baseCfg, nextCfg);
+        nextCfg[0]++;
+
+        if (nextCfg[0] <= maxWidth) {
+            outCfg = compactConfiguration(nextCfg);
+
+            if (validateConfiguration(outCfg) == 1 &&
+                GLOB_seen_configurations.find(outCfg) ==
+                GLOB_seen_configurations.end()) {
+                return outCfg;
+            }
+        }
+
+        // Try increasing RUU size
+        copyCfg(baseCfg, nextCfg);
+        nextCfg[3]++;
+
+        if (nextCfg[3] <= maxRuu) {
+            outCfg = compactConfiguration(nextCfg);
+
+            if (validateConfiguration(outCfg) == 1 &&
+                GLOB_seen_configurations.find(outCfg) ==
+                GLOB_seen_configurations.end()) {
+                return outCfg;
+            }
+        }
+
+        // Try increasing LSQ size
+        copyCfg(baseCfg, nextCfg);
+        nextCfg[4]++;
+
+        if (nextCfg[4] <= maxLsq) {
+            outCfg = compactConfiguration(nextCfg);
+
+            if (validateConfiguration(outCfg) == 1 &&
+                GLOB_seen_configurations.find(outCfg) ==
+                GLOB_seen_configurations.end()) {
+                return outCfg;
+            }
+        }
+    }
+
 
     // reset the nextCfg
     copyCfg(baseCfg, nextCfg);
@@ -494,7 +540,44 @@ std::string YourProposalFunction(
         }
     }
 
+    // Terminating early, search each dimension around baseCfg 
+    for (int dim = 0; dim < 18; dim++) {  
+        for (int val = 0; val < (int)GLOB_dimensioncardinality[dim]; val++) {  
+            copyCfg(baseCfg, nextCfg);  
+            nextCfg[dim] = val;  
+            outCfg = compactConfiguration(nextCfg);  
+            if (validateConfiguration(outCfg) == 1 &&  
+                GLOB_seen_configurations.find(outCfg) ==  
+                GLOB_seen_configurations.end()) {  
+                return outCfg;  
+            }  
+        }  
+    }  
+
+    // Still terminating, last resort look at random value till we find a valid option 
+    const int MAX_ATTEMPTS = 10000;  
+    for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {  
+        copyCfg(baseCfg, nextCfg);  
+        int numChanges = 1 + (rand() % 4);  
+        for (int c = 0; c < numChanges; c++) {  
+            int dim = rand() % 18;  
+            if (dim == 17) {  
+                nextCfg[dim] = 1 + (rand() % ((int)GLOB_dimensioncardinality[dim] - 1));  
+            } else {  
+                nextCfg[dim] = rand() % (int)GLOB_dimensioncardinality[dim];  
+            }  
+        }  
+        outCfg = compactConfiguration(nextCfg);  
+        if (validateConfiguration(outCfg) == 1 &&  
+            GLOB_seen_configurations.find(outCfg) ==  
+            GLOB_seen_configurations.end()) {  
+            return outCfg;  
+        }  
+    }  
+
+    // Exit here if we have exhausted lookups
     std::cerr << "ERROR: No valid, unexplored configuration found!" << std::endl;
+    //return currentconfiguration; //this does not work
     exit(1);
 
 }
