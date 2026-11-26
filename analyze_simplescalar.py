@@ -33,11 +33,26 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 
+# Exact order from GLOB_dimensionnames[18] in the user's source.
 CONFIG_NAMES = [
-    "width", "fetch_speed", "scheduling", "ruu_size", "lsq_size",
-    "memport", "dl1_sets", "dl1_assoc", "il1_sets", "il1_assoc",
-    "ul2_sets", "ul2_block", "ul2_assoc", "tlb_sets",
-    "dl1_latency", "il1_latency", "ul2_latency", "branch_predictor",
+    "width",
+    "fetchspeed",
+    "scheduling",
+    "RUUsize",
+    "LSQsize",
+    "Memports",
+    "dl1sets",
+    "dl1assoc",
+    "il1sets",
+    "il1assoc",
+    "ul2sets",
+    "ul2blocksize",
+    "ul2assoc",
+    "tlbsets",
+    "dl1lat",
+    "il1lat",
+    "ul2lat",
+    "bpred",
 ]
 
 
